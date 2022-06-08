@@ -11,6 +11,8 @@ var modelLoaded = false;
 var box, walkingAnime, boxCollide, boxCollideHand, parentMesh, sphere;
 let line;
 let tapSound, introSound;
+let cameraBehindKing = false;
+let handCollision = false;
 
 // Canvas
 const canvas = document.querySelector("canvas.webgl");
@@ -31,7 +33,7 @@ setupAudio();
 loadPalace();
 loadKing();
 
-// scene.debugLayer.show();
+scene.debugLayer.show();
 
 engine.runRenderLoop(() => {
   scene.render();
@@ -48,7 +50,7 @@ function changeTextureOnCollision() {
   //Walls
   for (let i = 0; i < 4; i++)
     if (boxCollideHand.intersectsMesh(palaceModel[1]._children[i], false)) {
-      console.log("base intersects");
+      handCollision = true;
       if(palaceModel[1]._children[i].material.name !== "goldMaterial") {
         palaceModel[1]._children[i].material = goldMaterial;
         playAudio = true;
@@ -73,6 +75,7 @@ function changeTextureOnCollision() {
       false
     )
   ) {
+    handCollision = true;
     if(palaceModel[1]._children[5]._children[0].material.name !== "goldMaterial") {
         palaceModel[1]._children[5]._children[0].material = goldMaterial;
         palaceModel[1]._children[5]._children[1].material = goldMaterial;
@@ -93,10 +96,12 @@ function changeTextureOnCollision() {
         false
       )
     ) {
+        handCollision = true;
         if(palaceModel[1]._children[i]._children[0].material.name !== "goldMaterial") {
             palaceModel[1]._children[i]._children[0].material = goldMaterial;
             palaceModel[1]._children[i]._children[1].material = goldMaterial;
             playAudio = true;
+            handCollision = true;
         }
     }
   }
@@ -104,16 +109,18 @@ function changeTextureOnCollision() {
   //Rest of the objects - Pillars and curtains
   for (let i = 9; i < 19; i++)
     if (boxCollideHand.intersectsMesh(palaceModel[1]._children[i], false)) {
+        handCollision = true;
         if(palaceModel[1]._children[i].material.name !== "goldMaterial") {
             palaceModel[1]._children[i].material = goldMaterial;
             playAudio = true;
+            handCollision = true;
         }
     }
 
     if(playAudio) {
         tapSound.play();
         playAudio = false;
-    }
+    }    
     
 }
 
@@ -146,20 +153,23 @@ function cameraSetup() {
   // This creates and positions a free camera (non-mesh)
   camera = new BABYLON.FollowCamera(
     "FollowCam",
-    new BABYLON.Vector3(0, 3, 0),
+    new BABYLON.Vector3(0,  3, 0),
     scene
   );
 
   // camera.rotation.y = Math.PI;
 
   // The goal distance of camera from target
-  camera.radius = 5;
+  camera.radius = 4;
 
   // The goal height of camera above local origin (centre) of target
-  camera.heightOffset = 4;
+  camera.heightOffset = 5;
+
+  camera.lowerHeightOffsetLimit = 3;
+  camera.upperHeightOffsetLimit = 6;
 
   // The goal rotation of camera around local origin (centre) of target in x y plane
-  camera.rotationOffset = 180;
+  camera.rotationOffset = 0;
 
   // Acceleration of camera in moving from current to goal position
   //camera.cameraAcceleration = 0.005;
@@ -170,11 +180,8 @@ function cameraSetup() {
   // This attaches the camera to the canvas
   camera.attachControl(canvas, true);
 
-  console.log("camera inputs", camera.inputs);
-
   camera.inputs.attached.keyboard.detachControl();
 
-  // camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
 }
 
 function lightSetup() {
@@ -201,20 +208,14 @@ function loadPalace() {
   BABYLON.SceneLoader.ImportMeshAsync("", "./", "RoomOpNew.glb", scene).then(
     (result) => {
 
-      console.log("result", result);
-
-
       for (var i of result.meshes) {
-        console.log("i", i, i.name);
         palaceModel.push(i);
       }
 
       modelLoaded = true;
 
       scene.meshes.forEach((child) => {
-        console.log("collisionMeshes", collisionMeshes, child.name);
         if(collisionMeshes.includes(child.name)) {
-          console.log("child.name", child.name);
           child.checkCollisions = true;
         }
       });
@@ -307,13 +308,15 @@ function loadKing() {
       boxCollideHand.material = material;
       material.alpha = 0;
       boxCollideHand.material.wireframe = true;
-      boxCollideHand.position = new BABYLON.Vector3(0.25, 2, 1);
-      //boxCollide1.showBoundingBox = true;
+      boxCollideHand.position = new BABYLON.Vector3(0.25, 2, 0.8);
+      boxCollideHand.showBoundingBox = true;
+      boxCollideHand.checkCollisions = true;  
 
       scene.collisionsEnabled = true;
 
       // targetMesh created here.
       camera.lockedTarget = box;
+      // camera.lockedTarget = scene.getMeshByName('King_character_primitive8');
       parentMesh = new BABYLON.Mesh("parent", scene);
       parentMesh.addChild(box);
       //parentMesh.addChild(boxCollide);
@@ -343,6 +346,18 @@ function loadKing() {
       // }
 
       parentMesh.collisionsEnabled = true;
+
+      let boxParent = box.parent;
+
+      // camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
+      scene.onBeforeRenderObservable.add(function () {
+        if(boxParent.position.z > 2 && camera.position.z > boxParent.position.z && !cameraBehindKing) {
+          cameraBehindKing = true;
+          camera.rotationOffset = 180;
+          camera.radius = 3;
+        }
+      });
+
     }
   );
 
@@ -356,29 +371,35 @@ function loadKing() {
   let angle = 0;
   let matrix = BABYLON.Matrix.Identity();
 
-
   scene.onKeyboardObservable.add((kbInfo) => {
     switch (kbInfo.type) {
       case BABYLON.KeyboardEventTypes.KEYDOWN:
         switch (kbInfo.event.key) {
           case "ArrowUp":
-            input.forward = true;
-            walkingAnime.play();
+            if(!handCollision) {
+              input.forward = true;
+              walkingAnime.play();  
+            } else {
+              input.forward = false;
+            }
             break;
 
           case "ArrowDown":
             input.backward = true;
             walkingAnime.play();
+            handCollision = false;
             break;
   
           case "ArrowLeft":
             input.left = true;
             walkingAnime.play();
+            handCollision = false;
             break;
 
           case "ArrowRight":
             input.right = true;
             walkingAnime.play();
+            handCollision = false;
             break;
         }
         break;
@@ -413,9 +434,6 @@ function loadKing() {
   const angularSpeed = 1;
   const translation = new BABYLON.Vector3(0, 0, 0);
   const rotation = new BABYLON.Vector3(0, 0, 0);
-
-
-  console.log("parentMesh", parentMesh);
 
   scene.registerBeforeRender((e) => {
 
